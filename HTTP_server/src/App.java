@@ -1,7 +1,5 @@
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -16,36 +14,36 @@ import java.util.regex.Pattern;
 
 public class App {
 	public static final int PORT = 80;
-	public static final String INDEX = "index.html";
-	public static final String ERROR = "";
-	public static final String OM_MEG = "om_meg.html";
-	//public static final Inet4Address ADDRESS = new Inet4Address(127.0.0.1);
 	
-	public static void main(String[] args) {
-		if(args.length != 1) {
-			System.out.println("Need argument: <number of threads>");
-			return;
-		}
-		
-		int numOfThreads = Integer.parseInt(args[0]);
+	boolean canExit = false;
+	ServerSocket serverSocket;
+	
+	public static void main(String[] args) {			
 		App app = new App();
-		app.runThreads(numOfThreads);
-		
+		new Thread(app.new ListenExit()).start();
+		app.runServer();		
 	}
 	
 	
-	private void runThreads(int numOfThreads) {
-		//new Thread(new ListenExit()).start();
+	private void runServer() {
 		System.out.println("Running server");
-		while(true) {
+		while(canExit == false) {
 			try {
-				ServerSocket serverSocket = new ServerSocket(PORT);
+				serverSocket = new ServerSocket(PORT);
 				Socket acceptSocket = serverSocket.accept();				
-				new Thread(new ServerThread(acceptSocket, serverSocket)).start();
+				new Thread(new ServerThread(acceptSocket)).start();
 				serverSocket.close();
+				
 			}catch(IOException e) {
 				System.out.println(e);
 			}
+		}
+		
+		System.out.println("Done!");
+		try {
+			serverSocket.close();
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
 	}
 	
@@ -56,11 +54,9 @@ public class App {
 	private class ServerThread implements Runnable {
 		int id = 0;
 		Socket acceptSocket;
-		ServerSocket serverSocket;
 		
-		public ServerThread(Socket acceptSocket, ServerSocket serverSocket) {
+		public ServerThread(Socket acceptSocket) {
 			this.acceptSocket = acceptSocket;
-			this.serverSocket = serverSocket;
 		}
 		
 		
@@ -88,7 +84,6 @@ public class App {
 		
 		
 		private String getFirstRequest(InputStream inputStream) throws IOException{
-			StringBuilder result = new StringBuilder();
 			//InputStreamReader is a character StreamReader, reads character by character
 			InputStreamReader streamReader = new InputStreamReader(inputStream); 
 			//BufferedReader is stored in ram, faster program
@@ -98,26 +93,10 @@ public class App {
 		}
 		
 		
-		private void loadMsgToClient(String request, OutputStream outputStream) {
-			PrintWriter msgToClient = new PrintWriter(outputStream);
-			switch(request) {
-				case " ":
-					loadPage(msgToClient, INDEX);
-					break;
-				case "om_meg":
-					loadPage(msgToClient, OM_MEG);
-					break;
-				default:
-					loadErrorPage(msgToClient);
-					
-			}
-		}
-		
-		
 		private String getRequstForPage(String fullRequest) {
 			String theRequest = "";
 			System.out.println(fullRequest);
-			String pattern = "(?<=/)(\\s|\\w+)";
+			String pattern = "(?<=/)([a-zA-Z\\._/]+|\\s+)";
 			Pattern r = Pattern.compile(pattern);
 			Matcher match = r.matcher(fullRequest);
 			
@@ -126,36 +105,49 @@ public class App {
 			}
 			System.out.println(theRequest);
 			
+			if(theRequest.equals(" ")) {
+				return "index";
+			}
 			return theRequest;
 		}
 		
 		
-		private void loadPage(PrintWriter msgToClient, String filePath) {
-			File filee = new File(filePath);
-			if(filee.exists()) {
-				System.out.println("File Exists");
-				long fileLength = filee.length();
+		private void loadMsgToClient(String request, OutputStream outputStream) {
+			PrintWriter msgToClient = new PrintWriter(outputStream);
+			String htmlFilePath = getHTMLFilePath(request);
+			System.out.println("The path: " + htmlFilePath);
+			File htmlFile = new File(htmlFilePath);
+			if(htmlFile.exists()) {
 				msgToClient.println("HTTP/1.1 200 OK");
-				msgToClient.println("Content-Length: " + fileLength);
+				msgToClient.println("Content-Length: " + htmlFile.length());
 				msgToClient.println("Content-Type: text/html");
 				msgToClient.println("");
 				
 				BufferedReader br;
 				try {
-					br = new BufferedReader(new FileReader(filee));
+					br = new BufferedReader(new FileReader(htmlFile));
 					String line = "";
 					while((line = br.readLine()) != null) {
 						msgToClient.println(line);
 					}
-				} catch(IOException e) {
+				}catch(IOException e) {
 					e.printStackTrace();
 					msgToClient.flush();
-				}				
+				}
+				msgToClient.flush();
 			}
 			else {
 				loadFileNotFoundPage(msgToClient);
 			}
 			msgToClient.flush();
+		}
+		
+		
+		private String getHTMLFilePath(String request) {
+			if(request.indexOf('.') < 0) {
+				return "HTML_files/" + request + ".html";
+			}
+			return request;
 		}
 		
 		
@@ -175,12 +167,12 @@ public class App {
 		
 		private void loadFileNotFoundPage(PrintWriter msgToClient) {
 			msgToClient.println("HTTP/1.1 500 Internal Server Error");
-			msgToClient.println("Content-Length: 80");
+			msgToClient.println("Content-Length: 58");
 			msgToClient.println("Content-Type: text/html");
 			msgToClient.println("");			
 			msgToClient.println("<html>\r\n" + 
 								"<body>\r\n" + 
-								"<h1>Index file not found!</h1>\r\n" + 
+								"<h1>File not found error...</h1>\r\n" + 
 								"</body>\r\n" + 
 								"</html>");
 			msgToClient.flush();
@@ -201,8 +193,15 @@ public class App {
 			while(!exitCond.equals("exit")) {
 				exitCond = sc.nextLine();
 			}
-			System.out.println("Yoello?");
+			System.out.println("canExit = true");
+			canExit = true;
 			sc.close();
+			try {
+				serverSocket.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+			System.out.println(canExit);
 		}
 	}
 }
